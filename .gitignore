@@ -11,3 +11,11 @@
 /qalculate-helper
 /target/
 /.debug/
+
+# build
+build/
+qalculate-helper
+.cache/
+
+# osx
+.DS_Store
