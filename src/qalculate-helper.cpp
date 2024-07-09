@@ -23,7 +23,9 @@
 #include <cstring>
 #include <exchange_update_exception.h>
 #include <libqalculate/Calculator.h>
+#include <libqalculate/Function.h>
 #include <libqalculate/MathStructure.h>
+#include <libqalculate/Unit.h>
 #include <libqalculate/includes.h>
 #include <security_util.h>
 #include <sstream>
@@ -50,13 +52,11 @@ static bool ends_with(string_view str, string_view suffix) {
 const char TYPE_MESSAGE = 1;
 const char TYPE_RESULT = 2;
 
-const char RESULT_APPROXIMATION_NO = 1;
-const char RESULT_APPROXIMATION_YES = 2;
-
 const char LEVEL_INFO = 1;
 const char LEVEL_WARNING = 2;
 const char LEVEL_ERROR = 3;
 const char LEVEL_UNKNOWN = 4;
+
 const char SEPARATOR = 0;
 
 #define COMMAND_UPDATE "update"
@@ -65,16 +65,19 @@ const unsigned long MODE_PRECISION = 1 << 0;
 const unsigned long MODE_EXACT = 1 << 1;
 const unsigned long MODE_NOCOLOR = 1 << 2;
 
-const int ETIMEOUT = 102;
-const int ECANTFETCH = 103;
-
-static MathStructure evaluate_single(Calculator *calc,
-                                     const EvaluationOptions &eo,
-                                     unsigned long line_number,
-                                     const string &expression) {
+struct EvaluatedResult {
   MathStructure result;
-  if (!calc->calculate(&result, calc->unlocalizeExpression(expression),
-                       TIMEOUT_CALC, eo))
+  MathStructure parsed;
+};
+
+static EvaluatedResult evaluate_single(Calculator *calc,
+                                       const EvaluationOptions &eo,
+                                       unsigned long line_number,
+                                       const string &expression) {
+  EvaluatedResult evaluated;
+  if (!calc->calculate(&evaluated.result,
+                       calc->unlocalizeExpression(expression), TIMEOUT_CALC, eo,
+                       &evaluated.parsed))
     throw timeout_exception();
 
   const CalculatorMessage *message;
@@ -99,7 +102,7 @@ static MathStructure evaluate_single(Calculator *calc,
     putchar(SEPARATOR);
     calc->nextMessage();
   }
-  return result;
+  return evaluated;
 }
 
 static bool mode_set(unsigned long mode, unsigned long test) {
@@ -122,26 +125,40 @@ static void set_precision(Calculator *calc, unsigned long mode,
   calc->setPrecision(precision);
 }
 
-MathStructure evaluate_all(const vector<string> &expressions,
-                           const EvaluationOptions &eo, Calculator *calc) {
+EvaluatedResult evaluate_all(const vector<string> &expressions,
+                             const EvaluationOptions &eo, Calculator *calc) {
   for (size_t i = 0; i < expressions.size() - 1; ++i)
     evaluate_single(calc, eo, i + 1, expressions[i]);
   return evaluate_single(calc, eo, expressions.size(), expressions.back());
 }
 
-void print_result(Calculator *calc, const MathStructure &result_struct,
-                  const PrintOptions &po, int mode, bool &approximate) {
-  string result =
-      calc->print(result_struct, TIMEOUT_PRINT, po, false,
-                  mode_set(mode, MODE_NOCOLOR) ? 0 : 1, TAG_TYPE_TERMINAL);
+string print_raw(Calculator *calc, MathStructure structure, PrintOptions &po,
+                 int mode) {
+  return calc->print(structure, TIMEOUT_PRINT, po, false,
+                     mode_set(mode, MODE_NOCOLOR) ? 0 : 1, TAG_TYPE_TERMINAL);
+}
+
+void print_result(Calculator *calc, const EvaluatedResult &result_struct,
+                  PrintOptions &po, int mode, bool &approximate) {
+  string parsed = print_raw(calc, result_struct.parsed, po, mode);
+  string result = print_raw(calc, result_struct.result, po, mode);
+  // po.number_fraction_format = FRACTION_DECIMAL;
+  // string result_decimal = print_raw(calc, result_struct.result, po, mode);
 
   if (ends_with(result, calc->timedOutString())) {
     throw timeout_exception();
-
   } else {
     putchar(TYPE_RESULT);
-    putchar(approximate ? RESULT_APPROXIMATION_YES : RESULT_APPROXIMATION_NO);
+    if (parsed.compare(result)) {
+      fputs(parsed.c_str(), stdout);
+      fputs(" ", stdout);
+    }
+    fputs(approximate ? "≈ " : "= ", stdout);
     fputs(result.c_str(), stdout);
+    /*if (result.compare(result_decimal)) {
+      fputs(" ≈ ", stdout);
+      fputs(result_decimal.c_str(), stdout);
+    }*/
   }
   putchar(SEPARATOR);
 }
@@ -178,6 +195,14 @@ static void evaluate(Calculator *calc, const vector<string> &expressions,
   calc->setExchangeRatesWarningEnabled(false);
   calc->loadExchangeRates();
   calc->loadGlobalDefinitions();
+
+  calc->addUnit(new AliasUnit("Minecraft Tick", "tick", "ticks", "tick", "Tick",
+                              calc->getUnitById(UNIT_ID_SECOND), "0.05", 1, "",
+                              true, true, true));
+  calc->addFunction(
+      new UserFunction("", "snowstamp", "unix2date((\\x>>22)/1000+1420070400)",
+                       true, 1, "Discord Snowflake to time",
+                       "Converts a Discord Snowflake to a time", 1, true));
 
   bool approximate = false;
 
@@ -219,7 +244,11 @@ int main(int argc, char **argv) {
     return 1;
 
   auto *calc = new Calculator(true);
+
+#ifndef SKIP_DEFANG
   do_defang_calculator(calc);
+#endif
+
   try {
     if (argc == 2) {
       if (strcmp(argv[1], COMMAND_UPDATE) == 0)

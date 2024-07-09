@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
 
-#include <cstdio>
-#include <cstdlib>
-#include <ctime>
 #include <libqalculate/Function.h>
 #include <libqalculate/Number.h>
 #include <libqalculate/QalculateDateTime.h>
@@ -19,6 +16,9 @@
 #endif
 
 #ifdef SECCOMP
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
 #include <seccomp.h>
 #else
 #warning "Not doing seccomp, do not use in production!"
@@ -56,13 +56,29 @@ void do_setuid() {
 #endif
 }
 
-void do_defang_calculator(Calculator *calc) {
-  calc->getActiveFunction("command")->destroy(); // rce
-#ifdef HAS_PLOT
-  calc->getActiveFunction("plot")->destroy(); // wouldn't work
-#endif
-  calc->getActiveVariable("uptime")->destroy(); // information leakage
+#ifndef SKIP_DEFANG
+void destroy_function(Calculator *calc, std::string name) {
+  MathFunction *f = calc->getActiveFunction(name);
+  if (f)
+    f->destroy();
 }
+
+void destroy_variable(Calculator *calc, std::string name) {
+  Variable *v = calc->getActiveVariable(name);
+  if (v)
+    v->destroy();
+}
+
+void do_defang_calculator(Calculator *calc) {
+  // literal rce
+  destroy_function(calc, "command");
+  destroy_function(calc, "load");
+  destroy_function(calc, "plot");
+
+  // info leak!
+  destroy_variable(calc, "uptime");
+}
+#endif
 
 #ifdef SECCOMP
 static int now_year;
@@ -112,11 +128,11 @@ void do_seccomp() {
   /*  13 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(rt_sigaction), 0);
   /*  14 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(rt_sigprocmask), 0);
   /*  24 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(sched_yield), 0);
-  // #ifdef SECCOMP_ALLOW_CLONE
+#ifdef SECCOMP_ALLOW_CLONE
   //  qalculate-helper seems to refuse to run in docker without this for some
   //  reason
   /*  56 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(clone), 0);
-  // #endif
+#endif
   /* 202 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(futex), 0);
   /* 230 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(clock_nanosleep), 0);
   /* 231 */ seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit_group), 0);
