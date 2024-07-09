@@ -73,6 +73,7 @@ void do_defang_calculator(Calculator *calc) {
   // literal rce
   destroy_function(calc, "command");
   destroy_function(calc, "load");
+  destroy_function(calc, "export");
   destroy_function(calc, "plot");
 
   // info leak!

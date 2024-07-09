@@ -14,9 +14,9 @@ since forks are supposed to be useful, here are some useful features I added:
 - docker file (published on ghcr.io)
 - now with CMake (and pkg-config)
 - works cleanly with clangd
-- brute force removal of `command` and `plot` and `uptime` and `load`[^1]
+- brute force removal of `command`, `plot`, `uptime`, `export`, and `load`[^1]
 - LHS text
-- minecraft ticks & discord snowflake timestamp (likely going to be an opt-in build flag)[^2]
+- minecraft ticks & discord snowflake timestamp[^2]
 - true/false text on inequality evaluation
 
 [^1]: this is done just in case and should have very minimal runtime impact
