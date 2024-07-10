@@ -132,6 +132,21 @@ EvaluatedResult evaluate_all(const vector<string> &expressions,
   return evaluate_single(calc, eo, expressions.size(), expressions.back());
 }
 
+// ripped from libqalculate:
+// https://github.com/Qalculate/libqalculate/blob/de8021afc8649986abbbe70e82ecd16a2cc95ff4/libqalculate/Calculator-calculate.cc#L879C1-L888C2
+bool test_parsed_comparison(const MathStructure &m) {
+  if (m.isComparison())
+    return true;
+  if ((m.isLogicalOr() || m.isLogicalAnd()) && m.size() > 0) {
+    for (size_t i = 0; i < m.size(); i++) {
+      if (!test_parsed_comparison(m[i]))
+        return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 string print_raw(Calculator *calc, MathStructure structure, PrintOptions &po,
                  int mode) {
   return calc->print(structure, TIMEOUT_PRINT, po, false,
@@ -140,8 +155,24 @@ string print_raw(Calculator *calc, MathStructure structure, PrintOptions &po,
 
 void print_result(Calculator *calc, const EvaluatedResult &result_struct,
                   PrintOptions &po, int mode, bool &approximate) {
+  MathStructure mResult(result_struct.result);
+
   string parsed = print_raw(calc, result_struct.parsed, po, mode);
-  string result = print_raw(calc, result_struct.result, po, mode);
+
+  // convert to true/false when necessary
+  if (test_parsed_comparison(result_struct.parsed)) {
+    if (mResult.isZero()) {
+      Variable *v = calc->getActiveVariable("false");
+      if (v)
+        mResult.set(v);
+    } else if (mResult.isOne()) {
+      Variable *v = calc->getActiveVariable("true");
+      if (v)
+        mResult.set(v);
+    }
+  }
+
+  string result = print_raw(calc, mResult, po, mode);
   // po.number_fraction_format = FRACTION_DECIMAL;
   // string result_decimal = print_raw(calc, result_struct.result, po, mode);
 
